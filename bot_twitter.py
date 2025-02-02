@@ -1,8 +1,13 @@
 #!/usr/bin/env python
-import os, time, json, logging, datetime, openai
+import os
+import time
+import json
+import logging
+import datetime
+import openai
 from selenium import webdriver
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
@@ -13,9 +18,11 @@ STOP_FILE = "stop_bot.txt"
 
 def init_driver():
     opts = Options()
-    opts.add_argument("--headless")
-    opts.add_argument("--disable-gpu")
-    driver = webdriver.Chrome(options=opts)
+    opts.add_argument('--headless')
+    opts.add_argument('--no-sandbox')
+    opts.add_argument('--disable-dev-shm-usage')
+    opts.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
+    driver = webdriver.Chrome(executable_path=os.environ.get("CHROMEDRIVER_PATH"), options=opts)
     driver.set_page_load_timeout(30)
     return driver
 
@@ -44,16 +51,14 @@ def login_twitter(driver):
     driver.get("https://twitter.com/login")
     try:
         wait = WebDriverWait(driver, 20)
-        # Saisie de l'email
         email_field = wait.until(EC.presence_of_element_located((By.NAME, "text")))
         email_field.send_keys(email)
-        next_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[text()="Next"]')
+        next_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Next")]')
         next_btn.click()
         time.sleep(2)
-        # Saisie du mot de passe
         pwd_field = wait.until(EC.presence_of_element_located((By.NAME, "password")))
         pwd_field.send_keys(password)
-        login_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[text()="Log in"]')
+        login_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Log in")]')
         login_btn.click()
         wait.until(EC.url_contains("home"))
         save_cookies(driver)
@@ -104,15 +109,12 @@ def post_tweet(driver, tweet_text):
         logging.error(f"Erreur publication tweet: {e}")
 
 def reply_to_popular_tweets(driver):
-    # Implémentation simplifiée – à adapter selon vos besoins
     logging.info("Réponses aux tweets populaires effectuées.")
 
 def reply_to_direct_messages(driver):
-    # Implémentation simplifiée – à adapter selon vos besoins
     logging.info("Réponses aux messages privés effectuées.")
 
 def thank_new_followers(driver):
-    # Implémentation simplifiée – à adapter selon vos besoins
     logging.info("Messages de remerciement envoyés aux nouveaux abonnés.")
 
 def main():
@@ -131,13 +133,11 @@ def main():
             time.sleep(60)
             continue
 
-        # Ne pas publier entre 2h et 6h
         if 2 <= datetime.datetime.now().hour < 6:
             logging.info("Pause entre 2h et 6h du matin.")
             time.sleep(1800)
             continue
 
-        # Alterner entre types de tweets
         types = ["meme", "inspiration", "trend"]
         tweet_type = types[int(time.time()) % len(types)]
         tweet = generate_tweet_content(tweet_type)
@@ -146,7 +146,6 @@ def main():
         else:
             logging.error("Tweet non généré.")
 
-        # Interactions automatiques
         reply_to_popular_tweets(driver)
         reply_to_direct_messages(driver)
         thank_new_followers(driver)
