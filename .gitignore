@@ -1,0 +1,17 @@
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+
+# Environnements virtuels
+env/
+venv/
+
+# Fichiers sensibles ou générés
+twitter_cookies.json
+stop_bot.txt
+
+# Fichiers de logs
+*.log
+
+# Système (macOS, etc.)
+.DS_Store
