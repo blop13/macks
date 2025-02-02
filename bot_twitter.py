@@ -21,8 +21,17 @@ def init_driver():
     opts.add_argument('--headless')
     opts.add_argument('--no-sandbox')
     opts.add_argument('--disable-dev-shm-usage')
-    opts.binary_location = os.environ.get("GOOGLE_CHROME_BIN")
-    driver = webdriver.Chrome(executable_path=os.environ.get("CHROMEDRIVER_PATH"), options=opts)
+    
+    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
+    if not chrome_bin:
+        raise ValueError("La variable d'environnement GOOGLE_CHROME_BIN n'est pas définie")
+    opts.binary_location = chrome_bin
+
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    if not chromedriver_path:
+        raise ValueError("La variable d'environnement CHROMEDRIVER_PATH n'est pas définie")
+
+    driver = webdriver.Chrome(executable_path=chromedriver_path, options=opts)
     driver.set_page_load_timeout(30)
     return driver
 
@@ -51,11 +60,13 @@ def login_twitter(driver):
     driver.get("https://twitter.com/login")
     try:
         wait = WebDriverWait(driver, 20)
+        # Saisie de l'email
         email_field = wait.until(EC.presence_of_element_located((By.NAME, "text")))
         email_field.send_keys(email)
         next_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Next")]')
         next_btn.click()
         time.sleep(2)
+        # Saisie du mot de passe
         pwd_field = wait.until(EC.presence_of_element_located((By.NAME, "password")))
         pwd_field.send_keys(password)
         login_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Log in")]')
