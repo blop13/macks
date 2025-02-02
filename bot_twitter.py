@@ -7,12 +7,12 @@ import datetime
 import openai
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 
-# Fichiers de cookies et de contrôle
 COOKIES_FILE = "twitter_cookies.json"
 STOP_FILE = "stop_bot.txt"
 
@@ -30,8 +30,9 @@ def init_driver():
     chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
     if not chromedriver_path:
         raise ValueError("La variable d'environnement CHROMEDRIVER_PATH n'est pas définie")
-
-    driver = webdriver.Chrome(executable_path=chromedriver_path, options=opts)
+    
+    service = Service(chromedriver_path)
+    driver = webdriver.Chrome(service=service, options=opts)
     driver.set_page_load_timeout(30)
     return driver
 
@@ -44,7 +45,7 @@ def load_cookies(driver):
             try:
                 driver.add_cookie(cookie)
             except Exception as e:
-                logging.error(f"Erreur cookie: {e}")
+                logging.error(f"Erreur cookie : {e}")
         logging.info("Cookies chargés.")
         return True
     return False
@@ -60,13 +61,11 @@ def login_twitter(driver):
     driver.get("https://twitter.com/login")
     try:
         wait = WebDriverWait(driver, 20)
-        # Saisie de l'email
         email_field = wait.until(EC.presence_of_element_located((By.NAME, "text")))
         email_field.send_keys(email)
         next_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Next")]')
         next_btn.click()
         time.sleep(2)
-        # Saisie du mot de passe
         pwd_field = wait.until(EC.presence_of_element_located((By.NAME, "password")))
         pwd_field.send_keys(password)
         login_btn = driver.find_element(By.XPATH, '//div[@role="button"]//span[contains(text(),"Log in")]')
@@ -101,7 +100,7 @@ def generate_tweet_content(content_type="general"):
         tweet = response.choices[0].message['content'].strip()
         return tweet
     except Exception as e:
-        logging.error(f"Erreur génération tweet: {e}")
+        logging.error(f"Erreur génération tweet : {e}")
         return None
 
 def post_tweet(driver, tweet_text):
@@ -113,11 +112,11 @@ def post_tweet(driver, tweet_text):
         tweet_box.send_keys(tweet_text)
         tweet_btn = wait.until(EC.element_to_be_clickable((By.XPATH, '//div[@data-testid="tweetButtonInline"]')))
         tweet_btn.click()
-        logging.info(f"Tweet publié: {tweet_text}")
+        logging.info(f"Tweet publié : {tweet_text}")
     except TimeoutException:
         logging.error("Timeout lors de la publication du tweet.")
     except Exception as e:
-        logging.error(f"Erreur publication tweet: {e}")
+        logging.error(f"Erreur publication tweet : {e}")
 
 def reply_to_popular_tweets(driver):
     logging.info("Réponses aux tweets populaires effectuées.")
@@ -129,8 +128,7 @@ def thank_new_followers(driver):
     logging.info("Messages de remerciement envoyés aux nouveaux abonnés.")
 
 def main():
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s - %(levelname)s - %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
     driver = init_driver()
     driver.get("https://twitter.com")
     if not load_cookies(driver) or not is_logged_in(driver):
