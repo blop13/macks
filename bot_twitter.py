@@ -21,7 +21,9 @@ def init_driver():
     opts.add_argument('--headless')
     opts.add_argument('--no-sandbox')
     opts.add_argument('--disable-dev-shm-usage')
-    
+    opts.add_argument('--disable-gpu')
+    opts.add_argument('--window-size=1920,1080')
+
     chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
     if not chrome_bin:
         raise ValueError("La variable d'environnement GOOGLE_CHROME_BIN n'est pas définie")
@@ -45,7 +47,7 @@ def load_cookies(driver):
             try:
                 driver.add_cookie(cookie)
             except Exception as e:
-                logging.error(f"Erreur cookie : {e}")
+                logging.error(f"Erreur lors de l'ajout du cookie : {e}")
         logging.info("Cookies chargés.")
         return True
     return False
@@ -74,7 +76,9 @@ def login_twitter(driver):
         save_cookies(driver)
         logging.info("Authentification réussie.")
     except TimeoutException:
-        logging.error("Échec de connexion à Twitter.")
+        logging.error("Échec de connexion à Twitter (timeout).")
+    except Exception as e:
+        logging.error(f"Erreur lors de la connexion à Twitter : {e}")
 
 def is_logged_in(driver):
     driver.get("https://twitter.com/home")
@@ -128,38 +132,46 @@ def thank_new_followers(driver):
     logging.info("Messages de remerciement envoyés aux nouveaux abonnés.")
 
 def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    driver = init_driver()
-    driver.get("https://twitter.com")
-    if not load_cookies(driver) or not is_logged_in(driver):
-        login_twitter(driver)
-    else:
-        logging.info("Session authentifiée via cookies.")
-
-    while True:
-        if os.path.exists(STOP_FILE):
-            logging.info("Signal d'arrêt détecté. Bot en pause.")
-            time.sleep(60)
-            continue
-
-        if 2 <= datetime.datetime.now().hour < 6:
-            logging.info("Pause entre 2h et 6h du matin.")
-            time.sleep(1800)
-            continue
-
-        types = ["meme", "inspiration", "trend"]
-        tweet_type = types[int(time.time()) % len(types)]
-        tweet = generate_tweet_content(tweet_type)
-        if tweet:
-            post_tweet(driver, tweet)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s - %(levelname)s - %(message)s")
+    driver = None
+    try:
+        driver = init_driver()
+        driver.get("https://twitter.com")
+        if not load_cookies(driver) or not is_logged_in(driver):
+            login_twitter(driver)
         else:
-            logging.error("Tweet non généré.")
-
-        reply_to_popular_tweets(driver)
-        reply_to_direct_messages(driver)
-        thank_new_followers(driver)
-
-        time.sleep(3600)
+            logging.info("Session authentifiée via cookies.")
+    
+        while True:
+            if os.path.exists(STOP_FILE):
+                logging.info("Signal d'arrêt détecté. Bot en pause.")
+                time.sleep(60)
+                continue
+    
+            if 2 <= datetime.datetime.now().hour < 6:
+                logging.info("Pause entre 2h et 6h du matin.")
+                time.sleep(1800)
+                continue
+    
+            types = ["meme", "inspiration", "trend"]
+            tweet_type = types[int(time.time()) % len(types)]
+            tweet = generate_tweet_content(tweet_type)
+            if tweet:
+                post_tweet(driver, tweet)
+            else:
+                logging.error("Tweet non généré.")
+    
+            reply_to_popular_tweets(driver)
+            reply_to_direct_messages(driver)
+            thank_new_followers(driver)
+    
+            time.sleep(3600)
+    except Exception as e:
+        logging.exception("Erreur dans la boucle principale :")
+    finally:
+        if driver:
+            driver.quit()
 
 if __name__ == '__main__':
     main()
