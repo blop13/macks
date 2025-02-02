@@ -143,7 +143,10 @@ def main():
         else:
             logging.info("Session authentifiée via cookies.")
     
+        # Boucle principale : log à chaque itération
         while True:
+            logging.info("Début d'une itération de la boucle principale.")
+            
             if os.path.exists(STOP_FILE):
                 logging.info("Signal d'arrêt détecté. Bot en pause.")
                 time.sleep(60)
@@ -166,12 +169,14 @@ def main():
             reply_to_direct_messages(driver)
             thank_new_followers(driver)
     
+            logging.info("Fin de l'itération, pause d'une heure.")
             time.sleep(3600)
     except Exception as e:
         logging.exception("Erreur dans la boucle principale :")
     finally:
         if driver:
             driver.quit()
+        logging.info("Processus terminé.")
 
 if __name__ == '__main__':
     main()
