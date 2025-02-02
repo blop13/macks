@@ -24,8 +24,7 @@ CHATGPT_API_TOKEN = os.environ.get("CHATGPT_API_TOKEN")
 # Fichier local où seront stockés/rechargés les cookies Twitter
 COOKIES_FILE = "twitter_cookies.pkl"
 
-# Intervalle par défaut (en secondes) entre les tweets
-# Si vous utilisez le scheduler d'Heroku 1 fois par heure, le script peut se contenter de s'exécuter une seule fois
+# Intervalle (en secondes) entre les cycles d’exécution (ex: 1h)
 PUBLISH_INTERVAL = 3600
 
 # Heures locales auxquelles on NE publie pas (ex: de 2h à 6h)
@@ -51,8 +50,8 @@ def is_bot_stopped():
 
 def is_no_post_time():
     """
-    Vérifie s'il est actuellement entre 2h et 6h (heure locale).
-    Si oui, on ne publie pas (retourne True).
+    Vérifie s'il est actuellement entre NO_POST_START et NO_POST_END (heure locale).
+    Si oui, on ne publie pas.
     """
     now = datetime.datetime.now()
     if NO_POST_START <= now.hour < NO_POST_END:
@@ -61,16 +60,24 @@ def is_no_post_time():
 
 def init_selenium():
     """
-    Initialise le driver Chrome (mode headless),
-    tente de charger les cookies si présents, sinon procède à la connexion.
+    Initialise le driver Chrome (mode headless), 
+    avec configuration adaptée à Heroku (binary_location, executable_path).
+    Tente de charger les cookies si présents, sinon procède à la connexion.
     """
-    # Options du navigateur (headless pour tourner sur serveur)
+
+    # Options du navigateur
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
 
-    driver = webdriver.Chrome(options=chrome_options)
+    # Configuration spécifique pour Heroku
+    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN", "/app/.apt/usr/bin/google-chrome")
+    chrome_options.binary_location = chrome_bin
+    driver_path = os.environ.get("CHROMEDRIVER_PATH", "/app/.chromedriver/bin/chromedriver")
+
+    # Initialisation du driver
+    driver = webdriver.Chrome(executable_path=driver_path, options=chrome_options)
     driver.implicitly_wait(10)
 
     # Tente de charger les cookies si le fichier existe
@@ -82,23 +89,21 @@ def init_selenium():
             for cookie in cookies:
                 driver.add_cookie(cookie)
             driver.refresh()
-            # Vérifier si on est connecté (ex: en cherchant un élément accessible uniquement aux comptes connectés)
+            # Vérifie si on est connecté
             if not check_if_logged_in(driver):
-                # Si pas connecté, on essaie la connexion classique
                 login_twitter(driver)
         except Exception as e:
-            print("Erreur lors du chargement des cookies : ", e)
+            print("Erreur lors du chargement des cookies :", e)
             login_twitter(driver)
     else:
-        # Si fichier de cookies non présent : login standard
         login_twitter(driver)
 
     return driver
 
 def check_if_logged_in(driver):
     """
-    Détermine si l'on est déjà connecté à Twitter.
-    Méthode simple : on essaie de trouver un élément distinctif (icône du menu, etc.).
+    Vérifie si l'utilisateur est connecté à Twitter.
+    Cherche un élément présent seulement pour les comptes connectés.
     """
     try:
         driver.find_element(By.XPATH, "//a[@href='/home' and contains(@aria-label, 'Accueil')]")
@@ -114,18 +119,16 @@ def login_twitter(driver):
     driver.get("https://twitter.com/login")
     time.sleep(3)
 
-    # Sélection et remplissage de l'email
+    # Remplir l'email ou username
     email_field = driver.find_element(By.NAME, "text")
     email_field.send_keys(TWITTER_EMAIL)
     email_field.submit()
     time.sleep(3)
 
-    # Possibilité que Twitter propose un écran intermédiaire (validation du nom/email)
-    # On gère simplement en vérifiant la présence d'un champ password
+    # Remplir le mot de passe (Twitter peut présenter différents écrans intermédiaires)
     try:
         password_field = driver.find_element(By.NAME, "password")
     except NoSuchElementException:
-        # On attend encore un peu et on re-sélectionne
         time.sleep(3)
         password_field = driver.find_element(By.NAME, "password")
 
@@ -133,7 +136,7 @@ def login_twitter(driver):
     password_field.submit()
     time.sleep(5)
 
-    # Vérifier si la connexion a réussi
+    # Vérifie si la connexion a réussi
     if not check_if_logged_in(driver):
         raise Exception("La connexion Twitter a échoué. Vérifiez vos identifiants.")
 
@@ -145,7 +148,6 @@ def login_twitter(driver):
 def generate_chatgpt_text(prompt_style="tweet"):
     """
     Utilise l'API OpenAI pour générer du texte (tweet, réponse, DM, etc.)
-    Personnalisez le prompt pour influencer le style et la pertinence du contenu.
     """
     if prompt_style == "tweet":
         prompt = (
@@ -155,7 +157,7 @@ def generate_chatgpt_text(prompt_style="tweet"):
     elif prompt_style == "reply":
         prompt = (
             "Génère une réponse humoristique et pertinente en français à un tweet populaire. "
-            "Sois engageant, pas trop long, et évite les mentions directes pour ne pas provoquer de signalements."
+            "Sois engageant, pas trop long, et évite les mentions directes."
         )
     elif prompt_style == "dm":
         prompt = (
@@ -167,7 +169,7 @@ def generate_chatgpt_text(prompt_style="tweet"):
 
     try:
         response = openai.Completion.create(
-            engine="text-davinci-003",  # ou "gpt-3.5-turbo" selon vos besoins
+            engine="text-davinci-003",
             prompt=prompt,
             max_tokens=60,
             temperature=0.7,
@@ -182,13 +184,13 @@ def generate_chatgpt_text(prompt_style="tweet"):
 
 def post_tweet(driver, text):
     """
-    Publie un tweet en utilisant Selenium (depuis la home page ou directement depuis /compose/tweet).
+    Publie un tweet avec Selenium (depuis la page de composition).
     """
     try:
         driver.get("https://twitter.com/compose/tweet")
         time.sleep(3)
 
-        # Champ de saisie du nouveau tweet
+        # Champ de saisie
         textarea = WebDriverWait(driver, 15).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "br[data-text='true']"))
         )
@@ -203,33 +205,30 @@ def post_tweet(driver, text):
 
         print(f"[{datetime.datetime.now()}] Tweet publié : {text}")
     except Exception as e:
-        print("Erreur lors de la publication du tweet : ", e)
+        print("Erreur lors de la publication du tweet :", e)
 
 def respond_to_popular_tweet(driver):
     """
-    Exemple minimaliste : ouvre la page d'accueil (ou une page de recherche/trending),
-    repère un tweet récent/populaire et y répond.
+    Exemple minimaliste : ouvre la page "Explorer" et répond au premier tweet trouvé.
     """
     try:
         driver.get("https://twitter.com/explore")
         time.sleep(5)
 
-        # Sélection du premier tweet dans la timeline "Tendances" ou "Explorer"
         tweets = driver.find_elements(By.XPATH, "//article[@data-testid='tweet']")
         if not tweets:
             print("Aucun tweet trouvé pour y répondre.")
             return
 
-        # On clique sur le premier tweet pour l'ouvrir
+        # Clique sur le premier tweet pour l'ouvrir
         tweets[0].click()
-        time.sleep(5)
+        time.sleep(3)
 
-        # Génération d'une réponse
         reply_text = generate_chatgpt_text(prompt_style="reply")
         if not reply_text:
             return
 
-        # Trouver la zone de réponse
+        # Saisir la réponse
         reply_box = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.CSS_SELECTOR, "div[aria-label='Tweet text']"))
         )
@@ -237,42 +236,39 @@ def respond_to_popular_tweet(driver):
         reply_box.send_keys(reply_text)
         time.sleep(1)
 
-        # Bouton Envoyer la réponse
+        # Bouton "Répondre"
         send_reply_btn = driver.find_element(By.XPATH, "//div[@data-testid='replyButton']")
         send_reply_btn.click()
         time.sleep(3)
 
         print(f"[{datetime.datetime.now()}] Réponse envoyée : {reply_text}")
     except Exception as e:
-        print("Erreur lors de la réponse à un tweet populaire : ", e)
+        print("Erreur lors de la réponse à un tweet populaire :", e)
 
 def respond_to_direct_messages(driver):
     """
-    Parcourt les DMs récents et répond automatiquement avec un message généré.
-    Méthode très simplifiée, à affiner selon l'UI de Twitter.
+    Ouvre la page des messages et répond à quelques DMs de manière automatisée.
     """
     try:
         driver.get("https://twitter.com/messages")
         time.sleep(5)
 
-        # Récupération des conversations
         conversations = driver.find_elements(By.XPATH, "//div[@data-testid='conversation']")
-        for convo in conversations[:2]:  # Limite à 2 par ex, pour l'exemple
+        for convo in conversations[:2]:  # Limite à 2 pour l'exemple
             convo.click()
             time.sleep(3)
 
-            # Générer une réponse
             dm_text = generate_chatgpt_text(prompt_style="dm")
             if not dm_text:
                 continue
 
-            # Zone de saisie DM
+            # Saisir le message
             dm_box = driver.find_element(By.XPATH, "//div[@data-testid='dmComposerTextInput']")
             dm_box.click()
             dm_box.send_keys(dm_text)
             time.sleep(1)
 
-            # Bouton d'envoi
+            # Envoyer
             send_btn = driver.find_element(By.XPATH, "//div[@data-testid='dmComposerSendButton']")
             send_btn.click()
             time.sleep(2)
@@ -283,25 +279,22 @@ def respond_to_direct_messages(driver):
 
 def thank_new_followers(driver):
     """
-    Exemple d’envoi d’un message de remerciement aux nouveaux abonnés.
-    Méthode simplifiée : on parcourt les notifications et si on trouve la mention "vous suit",
-    on envoie un DM. Cela peut demander des sélecteurs plus précis selon l'UI.
+    Exemple de remerciement des nouveaux abonnés via DM (simplifié).
     """
     try:
         driver.get("https://twitter.com/notifications")
         time.sleep(5)
 
-        # On cherche les notifications "vous suit"
+        # Recherche "vous suit"
         follows = driver.find_elements(By.XPATH, "//span[contains(text(), 'vous suit')]/ancestor::div[@data-testid='UserCell']")
         for f in follows[:2]:  # on limite pour l'exemple
             try:
-                # Aller au profil
                 profile_link = f.find_element(By.XPATH, ".//a[@role='link']")
                 profile_url = profile_link.get_attribute("href")
                 driver.get(profile_url)
                 time.sleep(3)
 
-                # Bouton message direct (selon configuration de l'utilisateur)
+                # Bouton "Message"
                 message_btn = driver.find_elements(By.XPATH, "//div[@data-testid='sendDMFromProfile']")
                 if message_btn:
                     message_btn[0].click()
@@ -321,7 +314,6 @@ def thank_new_followers(driver):
                         print(f"[{datetime.datetime.now()}] Message de remerciement envoyé à {profile_url}")
             except Exception as ex:
                 print("Erreur lors de l'envoi du DM de remerciement :", ex)
-
     except Exception as e:
         print("Erreur lors de la consultation des nouveaux followers :", e)
 
@@ -342,10 +334,9 @@ def main():
 
     driver = None
     try:
-        # Initialisation du driver + login/cookies
         driver = init_selenium()
 
-        # 1) Générer et publier un tweet (toutes les heures)
+        # 1) Générer et publier un tweet
         tweet_text = generate_chatgpt_text(prompt_style="tweet")
         if tweet_text:
             post_tweet(driver, tweet_text)
@@ -353,7 +344,7 @@ def main():
         # 2) Répondre à un tweet populaire
         respond_to_popular_tweet(driver)
 
-        # 3) Répondre aux DMs récents
+        # 3) Répondre aux DMs
         respond_to_direct_messages(driver)
 
         # 4) Remercier les nouveaux abonnés
@@ -367,9 +358,9 @@ def main():
             driver.quit()
 
 if __name__ == "__main__":
-    # Boucle continue uniquement si vous souhaitez faire tourner en continu.
-    # Sur Heroku, vous pouvez simplement appeler main() puis sortir,
-    # et configurer un Scheduler pour exécuter ce script 1x/heure.
+    # Boucle pour exécuter la logique en continu si souhaité.
+    # Sur Heroku, on peut simplement exécuter main() une fois,
+    # puis utiliser un Scheduler pour lancer le script toutes les heures.
     while True:
         main()
         print(f"Prochaine exécution dans {PUBLISH_INTERVAL} secondes...")
